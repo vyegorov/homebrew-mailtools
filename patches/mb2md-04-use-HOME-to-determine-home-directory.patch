@@ -1,0 +1,14 @@
+Description: Use $HOME to determine home directory
+ The home directory needs to be overridable for the test suite.
+Author: Axel Beckert <abe@debian.org>
+
+--- a/mb2md-3.20.pl
++++ b/mb2md-3.20.pl
+@@ -402,6 +402,7 @@
+ 
+ # Get uid, username and home dir
+ my ($name, $passwd, $uid, $gid, $quota, $comment, $gcos, $homedir, $shell) = getpwuid($<);
++$homedir = $ENV{HOME} if exists $ENV{HOME} and defined($ENV{HOME});
+ 
+ # Get arguments and determine source
+ # and target directories.

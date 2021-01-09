@@ -7,7 +7,14 @@ class Mb2md < Formula
 
   bottle :unneeded
 
+  depends_on "gpatch" => :build
+
   def install
+    sed -e '1,/^$/d' patches/mb2md-01-fix-dash-r-option.patch | patch -p1 mb2md.pl
+    sed -e '1,/^$/d' patches/mb2md-02-better-separator-line-detection.patch | patch -p1 src/mb2md-3.20.pl
+    sed -e '1,/^$/d' patches/mb2md-03-fix-uw-imap-misspellings.patch | patch -p1 src/mb2md-3.20.pl
+    sed -e '1,/^$/d' patches/mb2md-04-use-HOME-to-determine-home-directory.patch | patch -p1 src/mb2md-3.20.pl
+    sed -e '1,/^$/d' patches/mb2md-05-Make-source-and-destination-path-expansion-behave-mo.patch | patch -p1 src/mb2md-3.20.pl
     bin.install "mb2md-3.20.pl" => "mb2md"
   end
 
