@@ -1,0 +1,30 @@
+--- mb2md-3.20.pl	2021-01-10 17:33:11.000000000 +0100
++++ mb2md-3.20-08.pl	2021-01-10 21:18:07.000000000 +0100
+@@ -598,8 +598,9 @@
+ 	sysopen(MBXFILE, "$mbxfile", O_RDONLY) or die "Could not open $mbxfile !\n";
+ 	while ( <MBXFILE> )
+ 	{
++		# Check for MBOX-separator, but exclude git's format-patch string
+ 		if ( /^From +\S+ .*\d\d:\d\d/
+-			&& ! /^From [0-9a-f]{40} Mon Sep 17 00:00:00 2001$/ )
++			&& ! /^From [0-9a-f]{40} Mon Sep 17 00:00:00 2001(=0A=)?$/ )
+ 		{
+ 			close(MBXFILE);
+ 			return 1;
+@@ -952,8 +953,9 @@
+ 		# exchange possible Windows EOL (CRLF) with Unix EOL (LF)
+ 		$_ =~ s/\r\n$/\n/;
+ 
++		# Check for MBOX-separator, but exclude git's format-patch string
+ 		if ( ( /^From +\S+ .*\d\d:\d\d/
+-				&& ! /^From [0-9a-f]{40} Mon Sep 17 00:00:00 2001$/ )
++				&& ! /^From [0-9a-f]{40} Mon Sep 17 00:00:00 2001(=0A=)?$/ )
+ 			&& $previous_line_was_empty && (!defined $contentlength) )
+ 		{
+ 			# We are reading the "From " line which has an email address
+@@ -1328,3 +1330,5 @@
+ 
+ 	printf("$messagecount messages.\n\n");
+ }
++
++# vim:ts=4 noet
