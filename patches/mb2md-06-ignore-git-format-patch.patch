@@ -1,0 +1,24 @@
+--- a/mb2md-3.20.pl
++++ b/mb2md-3.20.pl
+@@ -602,7 +602,7 @@
+ 	return 1 if(-z $mbxfile);
+ 	sysopen(MBXFILE, "$mbxfile", O_RDONLY) or die "Could not open $mbxfile ! \n";
+ 	while(<MBXFILE>) {
+-		if (/^From +\S+ .*\d\d:\d\d/) {
++		if (/^From +\S+ .*\d\d:\d\d/ && !/^From [0-9a-f]{40} Mon Sep 17 00:00:00 2001$/) {
+ 			close(MBXFILE);
+ 			return 1;
+ 		}
+@@ -1006,10 +1006,8 @@
+                             # exchange possible Windows EOL (CRLF) with Unix EOL (LF)
+             $_ =~ s/\r\n$/\n/;
+ 
+-            if ( /^From +\S+ .*\d\d:\d\d/
+-		&& $previous_line_was_empty
+-		&& (!defined $contentlength) 
+-	       )
++            if ( ( /^From +\S+ .*\d\d:\d\d/ && !/^From [0-9a-f]{40} Mon Sep 17 00:00:00 2001$/ )
++				 && $previous_line_was_empty && (!defined $contentlength) )
+             {
+                             # We are reading the "From " line which has an
+                             # email address followed by a receive date.

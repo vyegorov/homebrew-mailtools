@@ -1,0 +1,24 @@
+Description: Fixes non-functionality of the -r option
+Bug-Debian: https://bugs.debian.org/333499
+Author: Bastien Mourgues <b.mourgues@newtech.fr>
+Reviewd-By: Axel Beckert <abe@debian.org>
+
+--- a/mb2md-3.20.pl
++++ b/mb2md-3.20.pl
+@@ -642,6 +642,7 @@
+ 	
+ 	# Appending $oldpath => path is only missing $dest
+ 	$destinationdir = "$temppath.$destinationdir";
++	defined($strip_ext) && ($destinationdir =~ s/\_$strip_ext$//);
+ 
+ 	# Converting '/' to '.' in $destinationdir
+ 	$destinationdir =~s/\/+/\./g;
+@@ -677,7 +678,7 @@
+ 		#
+ 		# if $strip_extension is defined,
+ 		# strip it off the $targetfile
+-	    	defined($strip_ext) && ($destinationdir =~ s/\.$strip_ext$//);
++#	    	defined($strip_ext) && ($destinationdir =~ s/\_$strip_ext$//);
+ 		&convert("$mbroot/$oldpath/$dir","$dest/$destinationdir");
+ 		$mailboxcount++;
+ 	}

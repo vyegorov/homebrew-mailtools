@@ -1,40 +1,5 @@
-class Mb2md < Formula
-  desc "Convert Mbox mailboxes to Maildir format."
-  homepage "https://batleth.sapienti-sat.org/projects/mb2md/"
-  url "http://batleth.sapienti-sat.org/projects/mb2md/mb2md-3.20.pl.gz"
-  sha256 "af45a9b5413a9fe49be0092e560485bf17efc50a4eb4a90744e380c4869f732f"
-  license :public_domain
-  revision 2
-
-  bottle :unneeded
-
-  depends_on "gpatch" => :build
-
-  patch :DATA
-
-  def install
-    ## The following patches are applied to the downloaded source.
-    ## Keep them around in case further modifications are required, as
-    ## Formulae requires a total patch in a single bundle.
-    # sed -e '1,/^$/d' patches/mb2md-01-fix-dash-r-option.patch | patch -p1 mb2md-3.20.pl
-    # sed -e '1,/^$/d' patches/mb2md-02-better-separator-line-detection.patch | patch -p1 mb2md-3.20.pl
-    # sed -e '1,/^$/d' patches/mb2md-03-fix-uw-imap-misspellings.patch | patch -p1 mb2md-3.20.pl
-    # sed -e '1,/^$/d' patches/mb2md-04-use-HOME-to-determine-home-directory.patch | patch -p1 mb2md-3.20.pl
-    # sed -e '1,/^$/d' patches/mb2md-05-Make-source-and-destination-path-expansion-behave-mo.patch | patch -p1 mb2md-3.20.pl
-    # patch -p1 mb2md-3.20.pl < patches/mb2md-06-ignore-git-format-patch.patch
-    # patch -p1 mb2md-3.20.pl < patches/mb2md-07-reformat-code.patch
-    bin.install "mb2md-3.20.pl" => "mb2md"
-  end
-
-  test do
-    system "true"
-  end
-end
-
-__END__
-diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
---- mb2md-3.20-orig.pl	2021-01-10 15:45:10.000000000 +0100
-+++ mb2md-3.20.pl	2021-01-10 17:33:11.000000000 +0100
+--- a/mb2md-3.20.pl
++++ b/mb2md-3.20.pl
 @@ -11,7 +11,7 @@
  # initially wrote by:
  # Robin Whittle
@@ -131,8 +96,8 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 -#                the corresponding maildir. The extension must be
 -#                given without the leading dot ("."). See the example below.
 -#
--#  -l WU-file    File containing the list of subscribed folders.  If
--#                migrating from WU-IMAP the list of subscribed folders will
+-#  -l UW-file    File containing the list of subscribed folders.  If
+-#                migrating from UW-IMAP the list of subscribed folders will
 -#                be found in the file called .mailboxlist in the users
 -#                home directory.  This will convert all subscribed folders
 -#                for a single user:
@@ -302,7 +267,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  #
  #------------------------------------------------------------------------------
  
-@@ -386,22 +380,24 @@
+@@ -386,19 +380,20 @@
  use IO::Handle;
  use Fcntl;
  
@@ -333,15 +298,9 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  
  # Get uid, username and home dir
  my ($name, $passwd, $uid, $gid, $quota, $comment, $gcos, $homedir, $shell) = getpwuid($<);
-+$homedir = $ENV{HOME} if exists $ENV{HOME} and defined($ENV{HOME});
- 
- # Get arguments and determine source
- # and target directories.
-@@ -411,48 +407,47 @@
- my $dest = undef;
- my $strip_ext = undef;
+@@ -414,47 +409,45 @@
  my $use_cl = undef;	# defines whether we use the Content-Length: header if present
-+my $pwd = `pwd`; chomp($pwd);
+ my $pwd = `pwd`; chomp($pwd);
  
 -# if option "-c" is given, we use the Content-Length: header if present
 +# If option "-c" is given, we use the Content-Length: header if present
@@ -383,7 +342,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  	# it is a subdir of the users $home
  	# if it does start with a "/" then
  	# let's take $mbroot as a absolut path
--	$opts{s} = "$homedir/$opts{s}" if ($opts{s} !~ /^\//); 
+-	$opts{s} = "$homedir/$opts{s}" if ($opts{s} !~ m(^[/.]));
 +	$opts{s} = "$homedir/$opts{s}" if ( $opts{s} !~ m(^[/.]) );
  
  	# check if the given source is a mbox file
@@ -399,7 +358,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  	{
  		$mbroot = $opts{s};
  		# get rid of trailing /'s
-@@ -460,147 +455,152 @@
+@@ -462,147 +455,152 @@
  
  		# check if we have a specified sub directory,
  		# otherwise the sub directory is '.'
@@ -451,7 +410,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 -# if the destination is relative to the home dir,
 +# If the destination is relative to the home dir,
  # check that the home dir exists
--die("Fatal: home dir $homedir doesn't exist.\n") if ($dest !~ /^\// &&  ! -e $homedir);
+-die("Fatal: home dir $homedir doesn't exist.\n") if ($dest !~ m(^[/.]) &&  ! -e $homedir);
 +die "Fatal: home dir $homedir doesn't exist.\n" if ( $dest !~ m(^[/.]) &&  ! -e $homedir );
  
 -#
@@ -459,7 +418,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 +# Form the destination value
  # slap the home dir on the front of the dest if the dest does not begin
  # with a '/'
--$dest = "$homedir/$dest" if ($dest !~ /^\//);
+-$dest = "$homedir/$dest" if ($dest !~ m(^[/.]));
 -# get rid of trailing /'s
 -$dest =~ s/\/$//;
 +$dest = "$homedir/$dest" if ( $dest !~ m(^[/.]) );
@@ -599,7 +558,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  	return 1 if(-z $mbxfile);
 -	sysopen(MBXFILE, "$mbxfile", O_RDONLY) or die "Could not open $mbxfile ! \n";
 -	while(<MBXFILE>) {
--		if (/^From/) {
+-		if (/^From +\S+ .*\d\d:\d\d/ && !/^From [0-9a-f]{40} Mon Sep 17 00:00:00 2001$/) {
 +	sysopen(MBXFILE, "$mbxfile", O_RDONLY) or die "Could not open $mbxfile !\n";
 +	while ( <MBXFILE> )
 +	{
@@ -609,7 +568,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  			close(MBXFILE);
  			return 1;
  		}
-@@ -611,22 +611,22 @@
+@@ -613,22 +611,22 @@
  	}
  }
  
@@ -637,7 +596,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  	{
  		print "Skipping $dir : name begins with a '.'\n";
  		return;
-@@ -636,102 +636,113 @@
+@@ -638,72 +636,78 @@
  
  	# We don't want to have .'s in the $targetfile file
  	# name because they will become directories in the
@@ -649,7 +608,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 +
  	# Appending $oldpath => path is only missing $dest
  	$destinationdir = "$temppath.$destinationdir";
-+	defined($strip_ext) && ($destinationdir =~ s/\_$strip_ext$//);
+ 	defined($strip_ext) && ($destinationdir =~ s/\_$strip_ext$//);
  
  	# Converting '/' to '.' in $destinationdir
  	$destinationdir =~s/\/+/\./g;
@@ -699,7 +658,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  		#
 -		# if $strip_extension is defined,
 -		# strip it off the $targetfile
--	    	defined($strip_ext) && ($destinationdir =~ s/\.$strip_ext$//);
+-#	    	defined($strip_ext) && ($destinationdir =~ s/\_$strip_ext$//);
 +		# if $strip_extension is defined, strip it off the $targetfile
 +		#		defined($strip_ext) && ( $destinationdir =~ s/\_$strip_ext$// );
  		&convert("$mbroot/$oldpath/$dir","$dest/$destinationdir");
@@ -739,10 +698,8 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 +# -------------------
  #
  # It checks that the folder to be converted is in the list of subscribed
--# folders in WU-IMAP
-+# folders in UW-IMAP
- #
- sub inlist
+ # folders in UW-IMAP
+@@ -712,29 +716,33 @@
  {
  	my ($file,@flist) = @_;
  	my $valid = 0;
@@ -783,7 +740,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  #
  # This function does the down and dirty work of
  # actually converting the mbox to a maildir
-@@ -742,715 +753,578 @@
+@@ -745,714 +753,578 @@
  	my ($mbox, $maildir) = @_;
  
  	printf("Source Mbox is $mbox\n");
@@ -803,6 +760,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 +	# Change to the target mailbox directory.
  
 -        chdir "$maildir" ;
+-        $mbox = "$pwd/$mbox" if ($mbox !~ m(^/));
 +	chdir "$maildir" ;
 +	$mbox = "$pwd/$mbox" if ( $mbox !~ m(^/) );
  
@@ -1214,10 +1172,8 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 -                            # exchange possible Windows EOL (CRLF) with Unix EOL (LF)
 -            $_ =~ s/\r\n$/\n/;
 -
--            if ( /^From /
--		&& $previous_line_was_empty
--		&& (!defined $contentlength) 
--	       )
+-            if ( ( /^From +\S+ .*\d\d:\d\d/ && !/^From [0-9a-f]{40} Mon Sep 17 00:00:00 2001$/ )
+-				 && $previous_line_was_empty && (!defined $contentlength) )
 -            {
 -                            # We are reading the "From " line which has an
 -                            # email address followed by a receive date.

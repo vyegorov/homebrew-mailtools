@@ -1,0 +1,25 @@
+Description: Better, but still not too strict RFC4155 separator line detection
+Bug-Debian: https://bugs.debian.org/578084
+Author: Pete Ashdown <pashdown@xmission.com>
+Author: Axel Beckert <abe@debian.org>
+
+--- a/mb2md-3.20.pl
++++ b/mb2md-3.20.pl
+@@ -600,7 +600,7 @@
+ 	return 1 if(-z $mbxfile);
+ 	sysopen(MBXFILE, "$mbxfile", O_RDONLY) or die "Could not open $mbxfile ! \n";
+ 	while(<MBXFILE>) {
+-		if (/^From/) {
++		if (/^From +\S+ .*\d\d:\d\d/) {
+ 			close(MBXFILE);
+ 			return 1;
+ 		}
+@@ -1003,7 +1003,7 @@
+                             # exchange possible Windows EOL (CRLF) with Unix EOL (LF)
+             $_ =~ s/\r\n$/\n/;
+ 
+-            if ( /^From /
++            if ( /^From +\S+ .*\d\d:\d\d/
+ 		&& $previous_line_was_empty
+ 		&& (!defined $contentlength) 
+ 	       )
