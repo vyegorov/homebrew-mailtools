@@ -1,0 +1,151 @@
+--- mb2md-3.20.pl	2021-01-10 21:18:07.000000000 +0100
++++ mb2md-3.20-09.pl	2021-01-14 00:36:43.000000000 +0100
+@@ -377,6 +377,8 @@
+ use strict;
+ use Getopt::Std;
+ use Date::Parse;
++use Time::HiRes qw(time);
++use DateTime;
+ use IO::Handle;
+ use Fcntl;
+ 
+@@ -754,7 +756,7 @@
+ 	my ($mbox, $maildir) = @_;
+ 
+ 	printf("Source Mbox is $mbox\n");
+-	printf("Target Maildir is $maildir \n") ;
++	printf("Target Maildir is $maildir \n");
+ 
+ 	# Create the directories for the new maildir
+ 	#
+@@ -765,7 +767,7 @@
+ 
+ 	# Change to the target mailbox directory.
+ 
+-	chdir "$maildir" ;
++	chdir "$maildir";
+ 	$mbox = "$pwd/$mbox" if ( $mbox !~ m(^/) );
+ 
+ 	# Converts a Mbox to multiple files in a Maildir.
+@@ -794,14 +796,16 @@
+ 	# Each email is put in a file in the cur/ subdirectory with a
+ 	# name of the form:
+ 	#
+-	#    nnnnnnnnn.cccc.mbox:2,XXXX
++	#    nnnnnnnnn.MmmmmmmPppppQcccccc.mbox:2,XXXX
+ 	#
+ 	# where:
+-	#    "nnnnnnnnn" is the Unix time since 1970 when this script started
+-	#       running, incremented by 1 for every email.  This is to ensure
+-	#       unique names for each message file.
++	#    "nnnnnnnnn" is the Unix epoch of the moment email is being processed,
+ 	#
+-	#    ".cccc" is the message count of messages from this mbox.
++	#    "Mmmmmmm" is number of microseconds at the moment of processing,
++	#
++	#    "Ppppp" is the PID of the process,
++	#
++	#    "Qcccccc" is the message number being processed from the mbox,
+ 	#
+ 	#    ".mbox" is just to indicate that this message was converted from
+ 	#       an Mbox mailbox.
+@@ -810,10 +814,9 @@
+ 	#       "XXXX", but may be followed by nothing.
+ 	#
+ 	# This is sort-of compliant with the Maildir naming conventions specified at:
+-	# http://www.qmail.org/man/man5/maildir.html
++	# http://cr.yp.to/proto/maildir.html
+ 	#
+-	# This approach does not involve the process ID or the hostname, but it is
+-	# probably good enough.
++	# This approach does not involve hostname, but it is probably good enough.
+ 	#
+ 	# When the IMAP server looks at this mailbox, it will move the files to
+ 	# the cur/ directory and change their names as it pleases.  In the case
+@@ -892,9 +895,8 @@
+ 
+ 	my $messagecount = 0;
+ 
+-	# For generating unique filenames for each message.  Initialise it here with
+-	# numeric time in seconds since 1970.
+-	my $unique = time;
++	# Timestamp of email processing, initialized when headers are processed.
++	my $dt;
+ 
+ 	# Name of message file to delete if we found that
+ 	# it was created by reading the Mbox dummy message.
+@@ -1038,7 +1040,7 @@
+ 			# Find the word "From " at the start of the line and replace it
+ 			# with nothing.  The nothing is what is between the second and
+ 			# third slash.
+-			$fromline =~ s/^From // ;
++			$fromline =~ s/^From //;
+ 
+ 			# Likewise get rid of the email address.  This first section is
+ 			# if we determine there is one (or more...) "@" characters in
+@@ -1054,7 +1056,7 @@
+ 				# characters (\S) contiguously, and then I think a space.
+ 				# Subsitute nothing for this.
+ 				#
+-				#    $fromline =~ s/(\S)+ // ;
++				#    $fromline =~ s/(\S)+ //;
+ 				#
+ 				# But we need something to match any number of non-@
+ 				# characters, then the "@" and then all the non-whitespace
+@@ -1120,12 +1122,14 @@
+ 			# the Subject line.
+ 			$flags .= $1 if /^Status: ([A-Z]+)/;
+ 			$flags .= $1 if /^X-Status: ([A-Z]+)/;
++
+ 			if ( /^X-Mozilla-Status: ([0-9a-f]{4})/i )
+ 			{
+ 				$flags .= 'R' if (hex($1) & 0x0001);
+ 				$flags .= 'A' if (hex($1) & 0x0002);
+ 				$flags .= 'D' if (hex($1) & 0x0008);
+ 			}
++
+ 			if ( /^X\-Evolution:\s+\w{8}\-(\w{4})/oi )
+ 			{
+ 				$b = pack("H4", $1); #pack it as 4 digit hex (0x0000)
+@@ -1147,7 +1151,9 @@
+ 				$flags .= 'F' if($b =~ /[01]{12}1[01]{3}/); #flagged
+ 				$flags .= 'R' if($b =~ /[01]{11}1[01]{4}/); #seen/read
+ 			}
++
+ 			$subject = $1 if /^Subject: (.*)$/;
++
+ 			if ( $use_cl eq 1 )
+ 			{
+ 				$contentlength = $1 if /^Content-Length: (\d+)$/;
+@@ -1169,18 +1175,20 @@
+ 				#
+ 				# A simple version of this would be:
+ 				#
+-				#   $messagefn = "cur/$unique.$messagecount.mbox:2,";
++				#   $messagefn = "cur/$epoch.$messagecount.mbox:2,";
+ 				#
+-				# This would create names with $messagecount values
+-				# of 1, 2, etc.  But for neatness when looking at a directory
+-				# of such messages, sorted by filename, I want to have leading
+-				# zeroes on message count, so that they would be 000001 etc.
+-				# This makes them appear in message order rather than 1 being
+-				# after 19 etc.  So this is good for up to 999,999 messages
+-				# in a mailbox.  It is a cosmetic matter for a person looking
+-				# into the Maildir directory manually.  To do this, use sprintf
+-				# instead with "%06d" for 6 characters of zero-padding:
+-				$messagefn = sprintf ("cur/%d.%06d.mbox:2,", $unique, $messagecount) ;
++				# This, however, is too repeatable and can cause duplicate
++				# file names in different directories, which in turn makes it
++				# troublesome to manually copy files around or to use the same
++				# destination Maildir for several script invocations.
++				#
++				# Therefore, include also microseconds and PID, following
++				# filename format as specified by:
++				# http://cr.yp.to/proto/maildir.html
++				#
++				# $messagecount is zero-padded and prefixed with Q per above.
++				$dt = DateTime->from_epoch( epoch => time );
++				$messagefn = sprintf("cur/%d.M%06dP%dQ%06d.mbox:2,", $dt->epoch, $dt->microsecond, $$, $messagecount);
+ 
+ 				# Append flag characters to the end of the filename, according
+ 				# to flag characters collected from the message headers

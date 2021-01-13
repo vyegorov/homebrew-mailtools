@@ -4,7 +4,7 @@ class Mb2md < Formula
   url "http://batleth.sapienti-sat.org/projects/mb2md/mb2md-3.20.pl.gz"
   sha256 "af45a9b5413a9fe49be0092e560485bf17efc50a4eb4a90744e380c4869f732f"
   license :public_domain
-  revision 3
+  revision 4
 
   bottle :unneeded
 
@@ -24,6 +24,7 @@ class Mb2md < Formula
     # patch -p1 mb2md-3.20.pl < patches/mb2md-06-ignore-git-format-patch.patch
     # patch -p1 mb2md-3.20.pl < patches/mb2md-07-reformat-code.patch
     # patch -p1 mb2md-3.20.pl < patches/mb2md-08-ignore-git-format-patch-quoted-printable.patch
+    # patch -p1 mb2md-3.20.pl < patches/mb2md-09-really-unique-filenames.patch
     bin.install "mb2md-3.20.pl" => "mb2md"
   end
 
@@ -35,7 +36,7 @@ end
 __END__
 diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 --- mb2md-3.20-orig.pl	2021-01-10 15:45:10.000000000 +0100
-+++ mb2md-3.20.pl	2021-01-10 21:28:19.000000000 +0100
++++ mb2md-3.20.pl	2021-01-14 00:37:48.000000000 +0100
 @@ -11,7 +11,7 @@
  # initially wrote by:
  # Robin Whittle
@@ -303,7 +304,12 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  #
  #------------------------------------------------------------------------------
  
-@@ -386,22 +380,24 @@
+@@ -383,25 +377,29 @@
+ use strict;
+ use Getopt::Std;
+ use Date::Parse;
++use Time::HiRes qw(time);
++use DateTime;
  use IO::Handle;
  use Fcntl;
  
@@ -338,7 +344,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  
  # Get arguments and determine source
  # and target directories.
-@@ -411,48 +407,47 @@
+@@ -411,48 +409,47 @@
  my $dest = undef;
  my $strip_ext = undef;
  my $use_cl = undef;	# defines whether we use the Content-Length: header if present
@@ -400,7 +406,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  	{
  		$mbroot = $opts{s};
  		# get rid of trailing /'s
-@@ -460,147 +455,153 @@
+@@ -460,147 +457,153 @@
  
  		# check if we have a specified sub directory,
  		# otherwise the sub directory is '.'
@@ -528,9 +534,9 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  {
 -	opendir(SDIR, $mbroot)
 -		or die("Fatal: Cannot open source directory $mbroot/ \n");
+-
 +	opendir(SDIR, $mbroot) or die "Fatal: Cannot open source directory $mbroot/ \n";
  
--
 -	while (my $sourcefile = readdir(SDIR))
 +	while ( my $sourcefile = readdir(SDIR) )
  	{
@@ -611,7 +617,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  			close(MBXFILE);
  			return 1;
  		}
-@@ -611,22 +612,22 @@
+@@ -611,22 +614,22 @@
  	}
  }
  
@@ -639,7 +645,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  	{
  		print "Skipping $dir : name begins with a '.'\n";
  		return;
-@@ -636,102 +637,113 @@
+@@ -636,102 +639,113 @@
  
  	# We don't want to have .'s in the $targetfile file
  	# name because they will become directories in the
@@ -785,12 +791,12 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  #
  # This function does the down and dirty work of
  # actually converting the mbox to a maildir
-@@ -742,715 +754,581 @@
+@@ -742,715 +756,587 @@
  	my ($mbox, $maildir) = @_;
  
  	printf("Source Mbox is $mbox\n");
 -        printf("Target Maildir is $maildir \n") ;
-+	printf("Target Maildir is $maildir \n") ;
++	printf("Target Maildir is $maildir \n");
  
 -	# create the directories for the new maildir
 +	# Create the directories for the new maildir
@@ -803,138 +809,10 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  
 -        # Change to the target mailbox directory.
 +	# Change to the target mailbox directory.
-+
-+	chdir "$maildir" ;
-+	$mbox = "$pwd/$mbox" if ( $mbox !~ m(^/) );
-+
-+	# Converts a Mbox to multiple files in a Maildir.
-+	# This is adapted from mbox2maildir.
-+
-+	# Open the Mbox mailbox file.
-+	if ( sysopen(MBOX, "$mbox", O_RDONLY) )
-+	{
-+		#printf("Converting Mbox   $mbox . . .  \n");
-+	}
-+	else
-+	{
-+		die "Fatal: unable to open input mailbox file: $mbox !\n";
-+	}
-+
-+	# This loop scans the input mailbox for a line starting with "From ".
-+	# The "^" before it is pattern-matching lingo for it being
-+	# at the start of a line.
-+	#
-+	# Each email in Mbox mailbox starts with such a line, which is why any
-+	# such line in the body of the email has to have a ">" put in front of it.
-+	#
-+	# This is not required in a Maildir mailbox, and some majik below
-+	# finds any such quoted "> From"s and gets rid of the "> " quote.
-+	#
-+	# Each email is put in a file in the cur/ subdirectory with a
-+	# name of the form:
-+	#
-+	#    nnnnnnnnn.cccc.mbox:2,XXXX
-+	#
-+	# where:
-+	#    "nnnnnnnnn" is the Unix time since 1970 when this script started
-+	#       running, incremented by 1 for every email.  This is to ensure
-+	#       unique names for each message file.
-+	#
-+	#    ".cccc" is the message count of messages from this mbox.
-+	#
-+	#    ".mbox" is just to indicate that this message was converted from
-+	#       an Mbox mailbox.
-+	#
-+	#    ":2," is the start of potentially multiple IMAP flag characters
-+	#       "XXXX", but may be followed by nothing.
-+	#
-+	# This is sort-of compliant with the Maildir naming conventions specified at:
-+	# http://www.qmail.org/man/man5/maildir.html
-+	#
-+	# This approach does not involve the process ID or the hostname, but it is
-+	# probably good enough.
-+	#
-+	# When the IMAP server looks at this mailbox, it will move the files to
-+	# the cur/ directory and change their names as it pleases.  In the case
-+	# of Courier IMAP, the names will become like:
-+	#
-+	#   995096541.25351.mbox:2,S
-+	#
-+	# with 25351 being Courier IMAP's process ID.  The :2, is the start
-+	# of the flags, and the "S" means that this one has been seen by
-+	# the user.  (But is this the same meaning as the user actually
-+	# having opened the message to see its contents, rather than just the
-+	# IMAP server having been asked to list the message's Subject etc.
-+	# so the client could list it in the visible Inbox?)
-+	#
-+	# This contrasts with a message created by Courier IMAP, say with
-+	# a message copy, which is like:
-+	#
-+	#   995096541.25351.zair,S=14285:2,S
-+	#
-+	# where ",S=14285" is the size of the message in bytes.
-+	#
-+	# Courier Maildrop's names are similar but lack the ":2,XXXX" flags...
-+	# except for my modified Maildrop which can deliver them with a
-+	# ":2,T" - flagged for deletion.
-+	#
-+	# I have extended the logic of the per-message inner loop to stop
-+	# saving a file for a message with:
-+	#
-+	# Subject: DON'T DELETE THIS MESSAGE -- FOLDER INTERNAL DATA
-+	#
-+	# This is the dummy message, always at the start of an Mbox format mailbox
-+	# file - and is put there by UW IMAPD.  Since quite a few people will use
-+	# this for converting from a UW system, I figure it is worth it.
-+	#
-+	# I will not save any such message file for the dummy message.
-+	#
-+	# Plan
-+	# ----
-+	#
-+	# We want to read the entire Mbox file, whilst
-+	# going through a loop for each message we find.
-+	#
-+	# We want to read all the headers of the message, starting with
-+	# the "From " line.  For that "From " line we want to get a date.
-+	#
-+	# For all other header lines, we want to store them
-+	# in $headers whilst parsing them to find:
-+	#
-+	#   1 - Any flags in the "Status: " or "X-Status: " or
-+	#       "X-Mozilla-Status: " lines.
-+	#
-+	#   2 - A subject line indicating this is the dummy message at the start
-+	#       (typically, but not necessarily) of the Mbox.
-+	#
-+	# Once we reach the end of the headers, we will crunch any flags we found
-+	# to create a file name.  Then, unless this is the dummy message we
-+	# create that file and write all the headers to it.
-+	#
-+	# Then we continue reading the Mbox, converting ">From " to
-+	# "From " and writing it to the file, until we reach one of:
-+	#
-+	#   1 - Another "From " line (indicating the start of another message).
-+	#
-+	# or
-+	#
-+	#   2 - The end of the Mbox.
-+	#
-+	# In the former case, which we detect at the start of the loop we need
-+	# to close the file and touch it to alter its date-time.
-+	#
-+	# In the later case, we also need to close the file and touch it to alter
-+	# its date-time - but this is beyond the end of the loop.
-+
-+	# Variables
-+	# ---------
-+
-+	my $messagecount = 0;
  
 -        chdir "$maildir" ;
-+	# For generating unique filenames for each message.  Initialise it here with
-+	# numeric time in seconds since 1970.
-+	my $unique = time;
++	chdir "$maildir";
++	$mbox = "$pwd/$mbox" if ( $mbox !~ m(^/) );
  
 -         	    # Converts a Mbox to multiple files
 -                    # in a Maildir.
@@ -1154,11 +1032,139 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 -                    # file.  Put non-date text here to make it
 -                    # spit the dummy if my code fails to find a
 -                    # date to write into this.
++	# Converts a Mbox to multiple files in a Maildir.
++	# This is adapted from mbox2maildir.
+ 
+-        my $receivedate = 'Bogus';
++	# Open the Mbox mailbox file.
++	if ( sysopen(MBOX, "$mbox", O_RDONLY) )
++	{
++		#printf("Converting Mbox   $mbox . . .  \n");
++	}
++	else
++	{
++		die "Fatal: unable to open input mailbox file: $mbox !\n";
++	}
++
++	# This loop scans the input mailbox for a line starting with "From ".
++	# The "^" before it is pattern-matching lingo for it being
++	# at the start of a line.
++	#
++	# Each email in Mbox mailbox starts with such a line, which is why any
++	# such line in the body of the email has to have a ">" put in front of it.
++	#
++	# This is not required in a Maildir mailbox, and some majik below
++	# finds any such quoted "> From"s and gets rid of the "> " quote.
++	#
++	# Each email is put in a file in the cur/ subdirectory with a
++	# name of the form:
++	#
++	#    nnnnnnnnn.MmmmmmmPppppQcccccc.mbox:2,XXXX
++	#
++	# where:
++	#    "nnnnnnnnn" is the Unix epoch of the moment email is being processed,
++	#
++	#    "Mmmmmmm" is number of microseconds at the moment of processing,
++	#
++	#    "Ppppp" is the PID of the process,
++	#
++	#    "Qcccccc" is the message number being processed from the mbox,
++	#
++	#    ".mbox" is just to indicate that this message was converted from
++	#       an Mbox mailbox.
++	#
++	#    ":2," is the start of potentially multiple IMAP flag characters
++	#       "XXXX", but may be followed by nothing.
++	#
++	# This is sort-of compliant with the Maildir naming conventions specified at:
++	# http://cr.yp.to/proto/maildir.html
++	#
++	# This approach does not involve hostname, but it is probably good enough.
++	#
++	# When the IMAP server looks at this mailbox, it will move the files to
++	# the cur/ directory and change their names as it pleases.  In the case
++	# of Courier IMAP, the names will become like:
++	#
++	#   995096541.25351.mbox:2,S
++	#
++	# with 25351 being Courier IMAP's process ID.  The :2, is the start
++	# of the flags, and the "S" means that this one has been seen by
++	# the user.  (But is this the same meaning as the user actually
++	# having opened the message to see its contents, rather than just the
++	# IMAP server having been asked to list the message's Subject etc.
++	# so the client could list it in the visible Inbox?)
++	#
++	# This contrasts with a message created by Courier IMAP, say with
++	# a message copy, which is like:
++	#
++	#   995096541.25351.zair,S=14285:2,S
++	#
++	# where ",S=14285" is the size of the message in bytes.
++	#
++	# Courier Maildrop's names are similar but lack the ":2,XXXX" flags...
++	# except for my modified Maildrop which can deliver them with a
++	# ":2,T" - flagged for deletion.
++	#
++	# I have extended the logic of the per-message inner loop to stop
++	# saving a file for a message with:
++	#
++	# Subject: DON'T DELETE THIS MESSAGE -- FOLDER INTERNAL DATA
++	#
++	# This is the dummy message, always at the start of an Mbox format mailbox
++	# file - and is put there by UW IMAPD.  Since quite a few people will use
++	# this for converting from a UW system, I figure it is worth it.
++	#
++	# I will not save any such message file for the dummy message.
++	#
++	# Plan
++	# ----
++	#
++	# We want to read the entire Mbox file, whilst
++	# going through a loop for each message we find.
++	#
++	# We want to read all the headers of the message, starting with
++	# the "From " line.  For that "From " line we want to get a date.
++	#
++	# For all other header lines, we want to store them
++	# in $headers whilst parsing them to find:
++	#
++	#   1 - Any flags in the "Status: " or "X-Status: " or
++	#       "X-Mozilla-Status: " lines.
++	#
++	#   2 - A subject line indicating this is the dummy message at the start
++	#       (typically, but not necessarily) of the Mbox.
++	#
++	# Once we reach the end of the headers, we will crunch any flags we found
++	# to create a file name.  Then, unless this is the dummy message we
++	# create that file and write all the headers to it.
++	#
++	# Then we continue reading the Mbox, converting ">From " to
++	# "From " and writing it to the file, until we reach one of:
++	#
++	#   1 - Another "From " line (indicating the start of another message).
++	#
++	# or
++	#
++	#   2 - The end of the Mbox.
++	#
++	# In the former case, which we detect at the start of the loop we need
++	# to close the file and touch it to alter its date-time.
++	#
++	# In the later case, we also need to close the file and touch it to alter
++	# its date-time - but this is beyond the end of the loop.
++
++	# Variables
++	# ---------
++
++	my $messagecount = 0;
++
++	# Timestamp of email processing, initialized when headers are processed.
++	my $dt;
++
 +	# Name of message file to delete if we found that
 +	# it was created by reading the Mbox dummy message.
 +	my $deletedummy = '';
- 
--        my $receivedate = 'Bogus';
++
 +	# To store the complete "From (address) (date-time) which delineates the start
 +	# of each message in the Mbox.
 +	my $fromline = '';
@@ -1462,8 +1468,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 +		if ( ( /^From +\S+ .*\d\d:\d\d/
 +				&& ! /^From [0-9a-f]{40} Mon Sep 17 00:00:00 2001(=0A=)?$/ )
 +			&& $previous_line_was_empty && (!defined $contentlength) )
- 		{
--                	$contentlength = $1 if /^Content-Length: (\d+)$/;
++		{
 +			# We are reading the "From " line which has an email address
 +			# followed by a receive date.  Turn on the $inheaders flag until we
 +			# reach the end of the headers.
@@ -1544,7 +1549,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 +			# Find the word "From " at the start of the line and replace it
 +			# with nothing.  The nothing is what is between the second and
 +			# third slash.
-+			$fromline =~ s/^From // ;
++			$fromline =~ s/^From //;
 +
 +			# Likewise get rid of the email address.  This first section is
 +			# if we determine there is one (or more...) "@" characters in
@@ -1560,7 +1565,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 +				# characters (\S) contiguously, and then I think a space.
 +				# Subsitute nothing for this.
 +				#
-+				#    $fromline =~ s/(\S)+ // ;
++				#    $fromline =~ s/(\S)+ //;
 +				#
 +				# But we need something to match any number of non-@
 +				# characters, then the "@" and then all the non-whitespace
@@ -1604,6 +1609,143 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 +			#   ls -lFa --full-time
 +			#
 +			# End of handling the "From " line.
++		}
++
++		# Now process header lines which are not the "From " line.
++		if ( ( $inheaders eq 1 ) && ( ! /^From / ) )
+ 		{
+-                	$contentlength = $1 if /^Content-Length: (\d+)$/;
++			# Now we are reading the header lines after the "From " line.
++			# Keep looking for the blank line which indicates the end of the
++			# headers.
++
++			# ".=" means append the current line to the $headers variable.
++			#
++			# For some reason, I was getting two blank lines at the end of the
++			# headers, rather than one, so I decided not to read in the blank
++			# line which terminates the headers.
++			#
++			# Delete the "unless ($_ eq "\n")" to get rid of this kludge.
++			$headers .= $_ unless ( $_ eq "\n" );
++
++			# Now scan the line for various status flags and to find
++			# the Subject line.
++			$flags .= $1 if /^Status: ([A-Z]+)/;
++			$flags .= $1 if /^X-Status: ([A-Z]+)/;
++
++			if ( /^X-Mozilla-Status: ([0-9a-f]{4})/i )
++			{
++				$flags .= 'R' if (hex($1) & 0x0001);
++				$flags .= 'A' if (hex($1) & 0x0002);
++				$flags .= 'D' if (hex($1) & 0x0008);
++			}
++
++			if ( /^X\-Evolution:\s+\w{8}\-(\w{4})/oi )
++			{
++				$b = pack("H4", $1); #pack it as 4 digit hex (0x0000)
++				$b = unpack("B32", $b); #unpack into bit string
++
++				# "usually" only the right most six bits are used however,
++				# I have come across a seventh bit in about 15 (out of 10,000)
++				# messages with this bit activated.
++				# I have not found any documentation in the source.
++				# If you find out what it does, please let me know.
++
++				# Notes:
++				#   Evolution 1.4 does mark forwarded messages.
++				#   The sixth bit is to denote an attachment
++
++				$flags .= 'A' if($b =~ /[01]{15}1/); #replied
++				$flags .= 'D' if($b =~ /[01]{14}1[01]{1}/); #deleted
++				$flags .= 'T' if($b =~ /[01]{13}1[01]{2}/); #draft
++				$flags .= 'F' if($b =~ /[01]{12}1[01]{3}/); #flagged
++				$flags .= 'R' if($b =~ /[01]{11}1[01]{4}/); #seen/read
++			}
++
++			$subject = $1 if /^Subject: (.*)$/;
++
++			if ( $use_cl eq 1 )
++			{
++				$contentlength = $1 if /^Content-Length: (\d+)$/;
++			}
++
++			# Now look out for the end of the headers - a blank line.  When we
++			# find it, create the file name and analyse the Subject line.
++
++			if ( $_ eq "\n" )
++			{
++				# We are at the end of the headers.  Set the
++				# $inheaders flag back to 0.
++				$inheaders = 0;
++
++				# Include the current newline in the content length
++				++$contentlength if defined $contentlength;
++
++				# Create the file name for the current message.
++				#
++				# A simple version of this would be:
++				#
++				#   $messagefn = "cur/$epoch.$messagecount.mbox:2,";
++				#
++				# This, however, is too repeatable and can cause duplicate
++				# file names in different directories, which in turn makes it
++				# troublesome to manually copy files around or to use the same
++				# destination Maildir for several script invocations.
++				#
++				# Therefore, include also microseconds and PID, following
++				# filename format as specified by:
++				# http://cr.yp.to/proto/maildir.html
++				#
++				# $messagecount is zero-padded and prefixed with Q per above.
++				$dt = DateTime->from_epoch( epoch => time );
++				$messagefn = sprintf("cur/%d.M%06dP%dQ%06d.mbox:2,", $dt->epoch, $dt->microsecond, $$, $messagecount);
++
++				# Append flag characters to the end of the filename, according
++				# to flag characters collected from the message headers
++				$messagefn .= 'F' if $flags =~ /F/; # Flagged.
++				$messagefn .= 'R' if $flags =~ /A/; # Replied to.
++				$messagefn .= 'S' if $flags =~ /R/; # Seen or Read.
++				$messagefn .= 'T' if $flags =~ /D/; # Tagged for deletion.
++
++				# Opens filename $messagefn for output (>) with filehandle OUT.
++				open(OUT, ">$messagefn") or die "Fatal: unable to create new message $messagefn\n";
++
++				# Count the messages.
++				$messagecount++;
++
++				# Only for the first message, check to see if it is a dummy.
++				# Delete the message file we just created if it was for the
++				# dummy message at the start of the Mbox.
++				#
++				# Add search terms as required.
++				# The last 2 lines are for rent.
++				#
++				# "m" means match the regular expression, but we can do
++				# without it.
++				#
++				# Do I need to escape the ' in "DON'T"?
++				# I didn't in the original version.
++				if ( $messagecount == 1
++					&& defined($subject)
++					&& $subject =~ m/^DON'T DELETE THIS MESSAGE -- FOLDER INTERNAL DATA/ )
++				{
++					# Stash the file name of the dummy message so we
++					# can delete it later.
++					$deletedummy = "$messagefn";
++				}
++				# Print the collected headers to the message file.
++
++				print OUT "$headers";
++
++				# Clear $headers and $flags ready for the next message.
++				$headers = '';
++				$flags = '';
++
++				# End of processing the headers once we found the
++				# blank line which terminated them
++			}
++
++			# End of dealing with the headers.
  		}
  
 -                            # Now look out for the end of the headers - a blank
@@ -1740,52 +1882,39 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 -                        if ($contentlength == -1 && $_ eq "\n") {
 -                            $contentlength = undef;
 -                            next;
-+		# Now process header lines which are not the "From " line.
-+		if ( ( $inheaders eq 1 ) && ( ! /^From / ) )
++		if ( $inheaders eq 0 )
 +		{
-+			# Now we are reading the header lines after the "From " line.
-+			# Keep looking for the blank line which indicates the end of the
-+			# headers.
-+
-+			# ".=" means append the current line to the $headers variable.
++			# We are now processing the message body.
 +			#
-+			# For some reason, I was getting two blank lines at the end of the
-+			# headers, rather than one, so I decided not to read in the blank
-+			# line which terminates the headers.
-+			#
-+			# Delete the "unless ($_ eq "\n")" to get rid of this kludge.
-+			$headers .= $_ unless ( $_ eq "\n" );
++			# Now we have passed the headers to the output file, we scan until
++			# the while loop finds another "From " line.
 +
-+			# Now scan the line for various status flags and to find
-+			# the Subject line.
-+			$flags .= $1 if /^Status: ([A-Z]+)/;
-+			$flags .= $1 if /^X-Status: ([A-Z]+)/;
-+			if ( /^X-Mozilla-Status: ([0-9a-f]{4})/i )
++			# Decrement our content length if we're using it to find the end
++			# of the message body
++			if ( defined $contentlength )
 +			{
-+				$flags .= 'R' if (hex($1) & 0x0001);
-+				$flags .= 'A' if (hex($1) & 0x0002);
-+				$flags .= 'D' if (hex($1) & 0x0008);
-+			}
-+			if ( /^X\-Evolution:\s+\w{8}\-(\w{4})/oi )
-+			{
-+				$b = pack("H4", $1); #pack it as 4 digit hex (0x0000)
-+				$b = unpack("B32", $b); #unpack into bit string
++				# Decrement our $contentlength variable
++				$contentlength -= length($_);
 +
-+				# "usually" only the right most six bits are used however,
-+				# I have come across a seventh bit in about 15 (out of 10,000)
-+				# messages with this bit activated.
-+				# I have not found any documentation in the source.
-+				# If you find out what it does, please let me know.
++				# The proper end for a message with Content-Length specified
++				# is the $contentlength variable should be exactly -1 and we
++				# should be on a bare newline.  Note that the bare newline is
++				# not printed to the end of the current message as it's
++				# actually a message separator in the mbox format rather than
++				# part of the message.  The next line _should_ be a From_
++				# line, but just in case the Content-Length header is incorrect
++				# (e.g. a corrupt mailbox), we just continue putting lines into
++				# the current message until we see the next From_ line.
++				if ( $contentlength < 0 )
++				{
++					if ( $contentlength == -1 && $_ eq "\n" )
++					{
++						$contentlength = undef;
++						next;
++					}
 +
-+				# Notes:
-+				#   Evolution 1.4 does mark forwarded messages.
-+				#   The sixth bit is to denote an attachment
-+
-+				$flags .= 'A' if($b =~ /[01]{15}1/); #replied
-+				$flags .= 'D' if($b =~ /[01]{14}1[01]{1}/); #deleted
-+				$flags .= 'T' if($b =~ /[01]{13}1[01]{2}/); #draft
-+				$flags .= 'F' if($b =~ /[01]{12}1[01]{3}/); #flagged
-+				$flags .= 'R' if($b =~ /[01]{11}1[01]{4}/); #seen/read
++					$contentlength = undef;
++				}
  			}
 -                        $contentlength = undef;
 -                    }
@@ -1856,123 +1985,6 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 -        if ($messagefn ne '') {
 -	    my $t = str2time($receivedate);
 -	    utime $t, $t, $messagefn;
-+			$subject = $1 if /^Subject: (.*)$/;
-+			if ( $use_cl eq 1 )
-+			{
-+				$contentlength = $1 if /^Content-Length: (\d+)$/;
-+			}
-+
-+			# Now look out for the end of the headers - a blank line.  When we
-+			# find it, create the file name and analyse the Subject line.
-+
-+			if ( $_ eq "\n" )
-+			{
-+				# We are at the end of the headers.  Set the
-+				# $inheaders flag back to 0.
-+				$inheaders = 0;
-+
-+				# Include the current newline in the content length
-+				++$contentlength if defined $contentlength;
-+
-+				# Create the file name for the current message.
-+				#
-+				# A simple version of this would be:
-+				#
-+				#   $messagefn = "cur/$unique.$messagecount.mbox:2,";
-+				#
-+				# This would create names with $messagecount values
-+				# of 1, 2, etc.  But for neatness when looking at a directory
-+				# of such messages, sorted by filename, I want to have leading
-+				# zeroes on message count, so that they would be 000001 etc.
-+				# This makes them appear in message order rather than 1 being
-+				# after 19 etc.  So this is good for up to 999,999 messages
-+				# in a mailbox.  It is a cosmetic matter for a person looking
-+				# into the Maildir directory manually.  To do this, use sprintf
-+				# instead with "%06d" for 6 characters of zero-padding:
-+				$messagefn = sprintf ("cur/%d.%06d.mbox:2,", $unique, $messagecount) ;
-+
-+				# Append flag characters to the end of the filename, according
-+				# to flag characters collected from the message headers
-+				$messagefn .= 'F' if $flags =~ /F/; # Flagged.
-+				$messagefn .= 'R' if $flags =~ /A/; # Replied to.
-+				$messagefn .= 'S' if $flags =~ /R/; # Seen or Read.
-+				$messagefn .= 'T' if $flags =~ /D/; # Tagged for deletion.
-+
-+				# Opens filename $messagefn for output (>) with filehandle OUT.
-+				open(OUT, ">$messagefn") or die "Fatal: unable to create new message $messagefn\n";
-+
-+				# Count the messages.
-+				$messagecount++;
-+
-+				# Only for the first message, check to see if it is a dummy.
-+				# Delete the message file we just created if it was for the
-+				# dummy message at the start of the Mbox.
-+				#
-+				# Add search terms as required.
-+				# The last 2 lines are for rent.
-+				#
-+				# "m" means match the regular expression, but we can do
-+				# without it.
-+				#
-+				# Do I need to escape the ' in "DON'T"?
-+				# I didn't in the original version.
-+				if ( $messagecount == 1
-+					&& defined($subject)
-+					&& $subject =~ m/^DON'T DELETE THIS MESSAGE -- FOLDER INTERNAL DATA/ )
-+				{
-+					# Stash the file name of the dummy message so we
-+					# can delete it later.
-+					$deletedummy = "$messagefn";
-+				}
-+				# Print the collected headers to the message file.
-+
-+				print OUT "$headers";
-+
-+				# Clear $headers and $flags ready for the next message.
-+				$headers = '';
-+				$flags = '';
-+
-+				# End of processing the headers once we found the
-+				# blank line which terminated them
-+			}
-+
-+			# End of dealing with the headers.
-+		}
-+
-+		if ( $inheaders eq 0 )
-+		{
-+			# We are now processing the message body.
-+			#
-+			# Now we have passed the headers to the output file, we scan until
-+			# the while loop finds another "From " line.
-+
-+			# Decrement our content length if we're using it to find the end
-+			# of the message body
-+			if ( defined $contentlength )
-+			{
-+				# Decrement our $contentlength variable
-+				$contentlength -= length($_);
-+
-+				# The proper end for a message with Content-Length specified
-+				# is the $contentlength variable should be exactly -1 and we
-+				# should be on a bare newline.  Note that the bare newline is
-+				# not printed to the end of the current message as it's
-+				# actually a message separator in the mbox format rather than
-+				# part of the message.  The next line _should_ be a From_
-+				# line, but just in case the Content-Length header is incorrect
-+				# (e.g. a corrupt mailbox), we just continue putting lines into
-+				# the current message until we see the next From_ line.
-+				if ( $contentlength < 0 )
-+				{
-+					if ( $contentlength == -1 && $_ eq "\n" )
-+					{
-+						$contentlength = undef;
-+						next;
-+					}
-+
-+					$contentlength = undef;
-+				}
-+			}
 +
 +			# We want to copy every part of the message body to the output
 +			# file, except for the quoted ">From " lines, which was the way the
