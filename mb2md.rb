@@ -4,7 +4,7 @@ class Mb2md < Formula
   url "http://batleth.sapienti-sat.org/projects/mb2md/mb2md-3.20.pl.gz"
   sha256 "af45a9b5413a9fe49be0092e560485bf17efc50a4eb4a90744e380c4869f732f"
   license :public_domain
-  revision 4
+  revision 5
 
   bottle :unneeded
 
@@ -25,6 +25,7 @@ class Mb2md < Formula
     # patch -p1 mb2md-3.20.pl < patches/mb2md-07-reformat-code.patch
     # patch -p1 mb2md-3.20.pl < patches/mb2md-08-ignore-git-format-patch-quoted-printable.patch
     # patch -p1 mb2md-3.20.pl < patches/mb2md-09-really-unique-filenames.patch
+    # patch -p1 mb2md-3.20.pl < patches/mb2md-10-proper_From-matching.patch
     bin.install "mb2md-3.20.pl" => "mb2md"
   end
 
@@ -36,7 +37,7 @@ end
 __END__
 diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 --- mb2md-3.20-orig.pl	2021-01-10 15:45:10.000000000 +0100
-+++ mb2md-3.20.pl	2021-01-14 00:37:48.000000000 +0100
++++ mb2md-3.20.pl	2021-01-14 21:05:59.000000000 +0100
 @@ -11,7 +11,7 @@
  # initially wrote by:
  # Robin Whittle
@@ -304,7 +305,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  #
  #------------------------------------------------------------------------------
  
-@@ -383,25 +377,29 @@
+@@ -383,25 +377,61 @@
  use strict;
  use Getopt::Std;
  use Date::Parse;
@@ -331,6 +332,38 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  }
 -		    # get options
 +
++# Generalize regexps used for MBOX parsing
++#
++# Per: http://manpages.ubuntu.com/manpages/bionic/man5/mbox.5.html
++#
++# An mbox is a text file containing an arbitrary number of e-mail messages.
++# Each message consists of a postmark, followed by an e-mail message
++# formatted  according  to RFC822, RFC2822.  The file format is
++# line-oriented.  Lines are separated by line feed characters (ASCII 10).
++#
++# A postmark line consists of the four characters "From", followed by a
++# space character, followed by the message's envelope sender address,
++# followed by whitespace, and followed by a time stamp.
++# This line is often called From_ line.
++#
++# The sender address is expected to be addr-spec as defined in
++# RFC2822 3.4.1.  The date is expected to be date-time as output by
++# asctime(3).  For compatibility reasons with legacy software, two-digit
++# years greater than or equal to 70 should be interpreted as the years
++# 1970+, while two-digit years less than 70 should be interpreted as the
++# years 2000-2069.  Software reading files in this format should also be
++# prepared to accept non-numeric timezone information such as "CET DST" for
++# Central European Time, daylight saving time.
++#
++# See also: https://tools.ietf.org/html/rfc4155
++#
++# Still, not all senders are following this, therefore it is wrong to
++# expect @ in the e-mail part, as well as anything meaningful at all.
++# Therefore focuse on starting anchor '^From ' and asctime(3) date
++# at the end instead.
++my $rx_from_mbox = '^From .* ([SMTWF][uoehra][neduit] [JFMASOND][aepuco][nbrynlgptvc] (?:(?:\d| )\d) \d{2}:\d{2}:\d{2} \d{4})$';
++my $rx_git_format_patch = '^From [0-9a-f]{40} Mon Sep 17 00:00:00 2001(=0A=)?$';
++
 +# Get options
  my %opts;
  getopts('d:f:chms:r:l:R', \%opts) || usage();
@@ -344,7 +377,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  
  # Get arguments and determine source
  # and target directories.
-@@ -411,48 +409,47 @@
+@@ -411,48 +441,47 @@
  my $dest = undef;
  my $strip_ext = undef;
  my $use_cl = undef;	# defines whether we use the Content-Length: header if present
@@ -406,7 +439,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  	{
  		$mbroot = $opts{s};
  		# get rid of trailing /'s
-@@ -460,147 +457,153 @@
+@@ -460,147 +489,152 @@
  
  		# check if we have a specified sub directory,
  		# otherwise the sub directory is '.'
@@ -451,7 +484,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 -    @flist=<LIST>;
 -    close LIST;
 +	open (LIST,$opts{l}) or die "Could not open mailbox list $opts{l}: $!\n";
-+	@flist=<LIST>;
++	@flist = <LIST>;
 +	close LIST;
  }
  
@@ -534,9 +567,9 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  {
 -	opendir(SDIR, $mbroot)
 -		or die("Fatal: Cannot open source directory $mbroot/ \n");
--
 +	opendir(SDIR, $mbroot) or die "Fatal: Cannot open source directory $mbroot/ \n";
  
+-
 -	while (my $sourcefile = readdir(SDIR))
 +	while ( my $sourcefile = readdir(SDIR) )
  	{
@@ -611,13 +644,12 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 +	while ( <MBXFILE> )
 +	{
 +		# Check for MBOX-separator, but exclude git's format-patch string
-+		if ( /^From +\S+ .*\d\d:\d\d/
-+			&& ! /^From [0-9a-f]{40} Mon Sep 17 00:00:00 2001(=0A=)?$/ )
++		if ( /$rx_from_mbox/ && ! /$rx_git_format_patch/ )
 +		{
  			close(MBXFILE);
  			return 1;
  		}
-@@ -611,22 +614,22 @@
+@@ -611,22 +645,22 @@
  	}
  }
  
@@ -645,7 +677,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  	{
  		print "Skipping $dir : name begins with a '.'\n";
  		return;
-@@ -636,102 +639,113 @@
+@@ -636,102 +670,113 @@
  
  	# We don't want to have .'s in the $targetfile file
  	# name because they will become directories in the
@@ -660,21 +692,24 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 +	defined($strip_ext) && ($destinationdir =~ s/\_$strip_ext$//);
  
  	# Converting '/' to '.' in $destinationdir
- 	$destinationdir =~s/\/+/\./g;
+-	$destinationdir =~s/\/+/\./g;
 -	
++	$destinationdir =~ s/\/+/\./g;
 +
  	# source dir
- 	my $srcdir="$mbroot/$oldpath/$dir";
+-	my $srcdir="$mbroot/$oldpath/$dir";
++	my $srcdir = "$mbroot/$oldpath/$dir";
  
  	printf("convertit(): Converting $dir in $mbroot/$oldpath to $dest/$destinationdir\n");
  	&maildirmake("$dest/$destinationdir");
  	print("destination = $destinationdir\n");
 -	if (-d $srcdir) {
 -		opendir(SUBDIR, "$srcdir") or die "can't open $srcdir !\n";
+-		my @subdirlist=readdir(SUBDIR);
 +	if ( -d $srcdir )
 +	{
 +		opendir(SUBDIR, "$srcdir") or die "Can't open $srcdir !\n";
- 		my @subdirlist=readdir(SUBDIR);
++		my @subdirlist = readdir(SUBDIR);
  		closedir(SUBDIR);
 -		foreach (@subdirlist) {
 +		foreach ( @subdirlist )
@@ -791,7 +826,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
  #
  # This function does the down and dirty work of
  # actually converting the mbox to a maildir
-@@ -742,715 +756,587 @@
+@@ -742,715 +787,488 @@
  	my ($mbox, $maildir) = @_;
  
  	printf("Source Mbox is $mbox\n");
@@ -1465,13 +1500,12 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 +		$_ =~ s/\r\n$/\n/;
 +
 +		# Check for MBOX-separator, but exclude git's format-patch string
-+		if ( ( /^From +\S+ .*\d\d:\d\d/
-+				&& ! /^From [0-9a-f]{40} Mon Sep 17 00:00:00 2001(=0A=)?$/ )
++		if ( ( /$rx_from_mbox/ && ! /$rx_git_format_patch/ )
 +			&& $previous_line_was_empty && (!defined $contentlength) )
 +		{
-+			# We are reading the "From " line which has an email address
-+			# followed by a receive date.  Turn on the $inheaders flag until we
-+			# reach the end of the headers.
++			# We are reading the "From " line which (hopefuly) has an email
++			# address followed by a receive date.  Turn on the $inheaders flag
++			# until we reach the end of the headers.
 +			$inheaders = 1;
 +
 +			# Record the message start line
@@ -1498,106 +1532,9 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 +				}
 +			}
 +
-+			# Because we opened the Mbox file without any variable, I think
-+			# this means that we have its current line in Perl's default
-+			# variable "$_".  So all sorts of pattern matching magic works
-+			# directly on it.
-+
-+			# We are currently reading the first line starting with "From "
-+			# which contains the date we want.
-+			#
-+			# This will be of the form:
-+			#
-+			#     From dduck@test.org Wed Nov 24 11:05:35 1999
-+			#
-+			# at least with UW-IMAP.
-+			#
-+			# However, I did find a nasty exception to this in my tests,
-+			# of the form:
-+			#
-+			#   "bounce-MusicNewsletter 5-rw=test.org"@announce2.mp3.com
-+			#
-+			# This makes it trickier to get rid of the email address, but I did
-+			# find a way.  I can't rule out that there would be some address
-+			# like this with an "@" in the quoted portion too.
-+			#
-+			# Unfortunately, testing with an old Inbox Mbox file, I also found
-+			# an instance where the email address had no @ sign at all.  It was
-+			# just an email account name, with no host.
-+			#
-+			# I could search for the day of the week.  If I skipped at least
-+			# one word of non-whitespace (1 or more contiguous non-whitespace
-+			# characters) then searched for a day of the week, then I should
-+			# be able to avoid almost every instance of a day of the week
-+			# appearing in the email address.
-+			#
-+			# Do I need a failsafe arrangement to provide some other date to
-+			# touch if I don't get what seems like a date in my resulting
-+			# string?  For now, no.
-+			#
-+			# I will take one approach if there is an @ in the "From " line
-+			# and another (just skip the first word after "From ") if there is
-+			# no @ in the line.
-+			#
-+			# If I knew more about Perl I would probably do it in
-+			# a more elegant way.
-+
-+			# Copy the current line into $fromline.
-+			$fromline = $_;
-+
-+			# Now get rid of the "From ". " =~ s" means substitute.
-+			# Find the word "From " at the start of the line and replace it
-+			# with nothing.  The nothing is what is between the second and
-+			# third slash.
-+			$fromline =~ s/^From //;
-+
-+			# Likewise get rid of the email address.  This first section is
-+			# if we determine there is one (or more...) "@" characters in
-+			# the line, which would normally be the case.
-+
-+			if ( $fromline =~ m/@/ )
-+			{
-+				# The line has at least one "@" in it, so we assume this is in
-+				# the middle of an email address.
-+				#
-+				# If the email address had no spaces, then we could get rid of
-+				# the whole thing by searching for any number of non-whitespace
-+				# characters (\S) contiguously, and then I think a space.
-+				# Subsitute nothing for this.
-+				#
-+				#    $fromline =~ s/(\S)+ //;
-+				#
-+				# But we need something to match any number of non-@
-+				# characters, then the "@" and then all the non-whitespace
-+				# characters from there (which takes us to the end of
-+				# "test.org") and then the space following that.
-+				#
-+				# A tutorial on regular expressions is:
-+				#
-+				#    http://www.perldoc.com/perl5.6.1/pod/perlretut.html
-+				#
-+				# Get rid of all non-@ characters up to the first "@":
-+				$fromline =~ s/[^@]+//;
-+
-+				# Get rid of the "@".
-+				$fromline =~ s/@//;
-+			}
-+
-+			# If there was an "@" in the line, then we have now removed the
-+			# first one (lets hope there aren't more!) and everything which
-+			# preceded it.
-+			#
-+			# We now remove either something like '(foo bar)', e.g.
-+			# '(no mail address)', or everything after the '@' up to the
-+			# trailing timezone
-+			#
-+			# FIXME: all those regexp should be combined to just one single one
-+			$fromline =~ s/(\((\S*| )+\)|\S+) *//;
-+			chomp $fromline;
-+
 +			# Stash the date-time for later use.  We will use it
 +			# to touch the file after we have closed it.
-+			$receivedate = $fromline;
++			( $receivedate ) = $_ =~ /$rx_from_mbox/;
 +
 +			# Debugging lines:
 +			#
@@ -1725,8 +1662,7 @@ diff --git a/mb2md-3.20.pl b/mb2md-3.20.pl
 +				#
 +				# Do I need to escape the ' in "DON'T"?
 +				# I didn't in the original version.
-+				if ( $messagecount == 1
-+					&& defined($subject)
++				if ( $messagecount == 1 && defined($subject)
 +					&& $subject =~ m/^DON'T DELETE THIS MESSAGE -- FOLDER INTERNAL DATA/ )
 +				{
 +					# Stash the file name of the dummy message so we
